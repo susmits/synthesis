@@ -7,6 +7,8 @@ synthesis.py -- lightweight toy synthesizer
 
 import wave
 import struct
+import math
+
 
 ###############################################################################
 ## Notes
@@ -39,6 +41,16 @@ SAMPLING_RATE = 44100
 # Generators are iterators that return floating point amplitude values between
 # -1 and 1.
 
+
+def silence():
+    """
+    An infinite generator that supplies silence.
+
+    """
+    while True:
+        yield 0.0
+
+
 def rectangular_wave(frequency, duty_cycle, minimum=0.0, maximum=1.0):
     """
     A rectangular waveform that alternates between `minimum` and `maximum`.
@@ -65,6 +77,19 @@ def rectangular_wave(frequency, duty_cycle, minimum=0.0, maximum=1.0):
             yield min
 
 
+def sine_wave(frequency):
+    """
+    A sinusoidal wave that goes from -1.0 to 1.0.
+
+    """
+    # First, determine the number of samples for one cycle.
+    num_samples = round(SAMPLING_RATE / frequency)
+
+    while True:
+        for i in range(num_samples):
+            yield math.sin(i * math.pi * 2 / num_samples)
+
+
 ###############################################################################
 ## Filters
 ##
@@ -87,6 +112,16 @@ def scale(generator, factor):
     """
     for value in generator:
         yield value * factor
+
+
+def concatenate(*kwargs):
+    """
+    Concatenates every supplied generator.
+
+    """
+    for generator in kwargs:
+        for sample in generator:
+            yield sample
 
 
 ###############################################################################
@@ -123,14 +158,24 @@ def pipe_to_wave(generator, out_filename):
 ##
 
 if __name__ == "__main__":
-    pipe_to_wave(
-        # One second only
-        time_limiter(
-            # Not too loud
-            scale(
-                # Middle C
-                rectangular_wave(261.63, 0.25),
-                0.2),
-            1.0), "test.wav")
+    frequencies = [
+        261.63,
+        293.66,
+        329.63,
+        349.23,
+        392.00,
+        440.00,
+        493.88,
+        523.25
+    ]
+    octave = [
+        concatenate(
+            time_limiter(scale(sine_wave(frequency), 0.2), 0.5),
+            time_limiter(silence(), 0.25)
+        )
+        for frequency in frequencies + frequencies[::-1]
+    ]
+
+    pipe_to_wave(concatenate(*octave), "test.wav")
 
 ###############################################################################
