@@ -23,6 +23,11 @@ import wave
 #  - 44,100 kHz
 #  - 1 channel
 #
+# From what I recall from getting sound working on Gentoo, I think linear
+# increase is not a useful model here. In any case decibels are logarithmic.
+# For now, a scale that works using a direct multiplication might work. A more
+# realistic implementation would facotr in the logarithmic thing.
+#
 
 SAMPLING_RATE = 44100
 
@@ -33,15 +38,22 @@ SAMPLING_RATE = 44100
 # Generators are iterators that return floating point amplitude values between
 # -1 and 1.
 
-def rectangular_wave(duty_cycle, minimum=0.0, maximum=1.0):
+def rectangular_wave(frequency, duty_cycle, minimum=0.0, maximum=1.0):
     """
     A rectangular waveform that alternates between `minimum` and `maximum`.
+    `frequency` is specified in Hertz.
 
     """
+    # First, use the frequency to figure out how many samples each oscillation
+    # will occupy.
+    num_samples = SAMPLING_RATE / frequency
+
     # Use the duty cycle to figure out how many samples need to be on and off.
+    # TODO<susmits>: This is extremely nearest-neighbour, and as a result will
+    # sound more and more off as frequency approaches SAMPLING_RATE.
     assert(0.0 <= duty_cycle <= 1.0)
-    max_count = round(duty_cycle * SAMPLING_RATE)
-    min_count = SAMPLING_RATE - max_count
+    max_count = round(duty_cycle * num_samples)
+    min_count = num_samples - max_count
 
     min, max = float(minimum), float(maximum)
     for i in range(max_count):
@@ -64,6 +76,15 @@ def time_limiter(generator, num_seconds):
     num_samples = round(num_seconds * SAMPLING_RATE)
     for i in range(num_samples):
         yield next(generator)
+
+
+def scale(generator, factor):
+    """
+    Scales the value of the generator iterations by `factor`.
+
+    """
+    for value in generator:
+        yield value * factor
 
 
 ###############################################################################
