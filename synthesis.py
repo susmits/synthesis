@@ -6,6 +6,7 @@ synthesis.py -- lightweight toy synthesizer
 """
 
 import wave
+import struct
 
 ###############################################################################
 ## Notes
@@ -46,7 +47,7 @@ def rectangular_wave(frequency, duty_cycle, minimum=0.0, maximum=1.0):
     """
     # First, use the frequency to figure out how many samples each oscillation
     # will occupy.
-    num_samples = SAMPLING_RATE / frequency
+    num_samples = round(SAMPLING_RATE / frequency)
 
     # Use the duty cycle to figure out how many samples need to be on and off.
     # TODO<susmits>: This is extremely nearest-neighbour, and as a result will
@@ -56,11 +57,12 @@ def rectangular_wave(frequency, duty_cycle, minimum=0.0, maximum=1.0):
     min_count = num_samples - max_count
 
     min, max = float(minimum), float(maximum)
-    for i in range(max_count):
-        yield max
+    while True:
+        for i in range(max_count):
+            yield max
 
-    for i in range(min_count):
-        yield min
+        for i in range(min_count):
+            yield min
 
 
 ###############################################################################
@@ -91,7 +93,44 @@ def scale(generator, factor):
 ## Wave writer
 ##
 
-# tbd
+def pipe_to_wave(generator, out_filename):
+    """
+    Pipes samples from `generator` into `out_file`, which is a file-like object.
 
+    Please make sure `generator` is limited if you value your hard drive.
+
+    """
+    with wave.open(out_filename, "w") as wav:
+        # Monophonic
+        wav.setnchannels(1)
+
+        # Sampling frequency
+        wav.setframerate(SAMPLING_RATE)
+
+        # Let's make each sample 16-bit wide.
+        wav.setsampwidth(2)
+
+        # For two bytes, the range is [-32767, 32767]
+        # TODO<susmits>: Most likely -32768 is illegal; be good to verify.
+        scaler = 32767
+        for sample in generator:
+            data = struct.pack('<h', round(scaler * sample))
+            wav.writeframesraw(data)
+
+
+###############################################################################
+## Test!
+##
+
+if __name__ == "__main__":
+    pipe_to_wave(
+        # One second only
+        time_limiter(
+            # Not too loud
+            scale(
+                # Middle C
+                rectangular_wave(261.63, 0.25),
+                0.2),
+            1.0), "test.wav")
 
 ###############################################################################
