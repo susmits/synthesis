@@ -42,13 +42,22 @@ SAMPLING_RATE = 44100
 # -1 and 1.
 
 
+def hold(level):
+    """
+    An infinite generator that holds at level. DO NOT pipe this to audio,
+    or you will damage your output equipment. This is only good for envelopes.
+
+    """
+    while True:
+        yield level
+
+
 def silence():
     """
     An infinite generator that supplies silence.
 
     """
-    while True:
-        yield 0.0
+    return hold(0.0)
 
 
 def rectangular_wave(frequency, duty_cycle, minimum=0.0, maximum=1.0):
@@ -87,7 +96,53 @@ def sine_wave(frequency):
 
     while True:
         for i in range(num_samples):
-            yield math.sin(i * math.pi * 2 / num_samples)
+            phase = i * math.pi * 2 / num_samples
+            yield math.sin(phase)
+
+
+def linear_change(duration, start, end):
+    """
+    A linear rise or fall over a given period of time.
+
+    """
+    # First, figure out the number of samples
+    num_samples = round(duration * SAMPLING_RATE)
+
+    slope = (end - start) / float(num_samples)
+    for i in range(num_samples):
+        yield start + i * slope
+
+
+def triangle_wave(frequency):
+    """
+    A triangular waveform that linearly rises from 0 to 1, falls from 1 to -1,
+    and rises from -1 to 0 over one wave train.
+
+    """
+    # What's the duration for one cycle?
+    time_period = 1.0 / frequency
+
+    while True:
+        for sample in linear_change(time_period / 4, 0, 1):
+            yield sample
+        for sample in linear_change(time_period / 2, 1, -1):
+            yield sample
+        for sample in linear_change(time_period / 4, -1, 0):
+            yield sample
+
+
+def sawtooth_wave(frequency):
+    """
+    A sawtooth waveform that linearly rises from -1 to 1, and then sharply
+    falls to -1 again.
+
+    """
+    # What's the duration for one cycle?
+    time_period = 1.0 / frequency
+
+    while True:
+        for sample in linear_change(time_period, -1, 1):
+            yield sample
 
 
 ###############################################################################
@@ -105,13 +160,13 @@ def time_limiter(generator, num_seconds):
         yield next(generator)
 
 
-def scale(generator, factor):
+def scale(generator, factor_generator):
     """
-    Scales the value of the generator iterations by `factor`.
+    Scales the value of the generator iterations by `factor_generator`.
 
     """
-    for value in generator:
-        yield value * factor
+    for sample, factor in zip(generator, factor_generator):
+        yield sample * factor
 
 
 def concatenate(*kwargs):
@@ -122,6 +177,34 @@ def concatenate(*kwargs):
     for generator in kwargs:
         for sample in generator:
             yield sample
+
+
+###############################################################################
+## Envelope generators
+##
+
+def linear_adsr(attack_duration, decay_duration, sustain_duration,
+    release_duration, attack_level, sustain_level):
+    r"""
+    Produces a linear ADSR envelope which looks so:
+
+    1      /\
+          /  \___ (sustain_level)
+         /       \
+    0   /         \
+         a d   s r
+         d d   d d
+    
+    All increases are linear in time.
+     - rise from 0 to attack_level over attack_duration
+     - fall from attack_level to sustain_level over decay_duration
+     - hold at sustain_level over sustain_duration
+     - fall from sustain_level to 0 over release_duration 
+    """
+    return concatenate(linear_change(attack_duration, 0.0, attack_level),
+        linear_change(decay_duration, attack_level, sustain_level),
+        time_limiter(hold(sustain_level), sustain_duration),
+        linear_change(release_duration, sustain_level, 0.0))
 
 
 ###############################################################################
@@ -148,9 +231,17 @@ def pipe_to_wave(generator, out_filename):
         # For two bytes, the range is [-32767, 32767]
         # TODO<susmits>: Most likely -32768 is illegal; be good to verify.
         scaler = 32767
-        for sample in generator:
-            data = struct.pack('<h', round(scaler * sample))
-            wav.writeframesraw(data)
+        i = 0
+        ss, sm = 0, 0
+        try:
+            for sample in generator:
+                i += 1
+                ss, sm = scaler, sample
+                data = struct.pack('<h', round(scaler * sample))
+                wav.writeframesraw(data)
+        except:
+            print(i, ss, sm)
+
 
 
 ###############################################################################
@@ -170,7 +261,13 @@ if __name__ == "__main__":
     ]
     octave = [
         concatenate(
-            time_limiter(scale(sine_wave(frequency), 0.2), 0.5),
+            time_limiter(
+                scale(
+                    sine_wave(frequency), 
+                    scale(
+                        linear_adsr(0.05, 0.1, 0.3, 0.05, 0.4, 0.2), 
+                        hold(0.2))),
+                0.5),
             time_limiter(silence(), 0.25)
         )
         for frequency in frequencies + frequencies[::-1]
