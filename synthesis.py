@@ -34,6 +34,57 @@ import math
 
 SAMPLING_RATE = 44100
 
+NOTE_REGEX = "([ABCDEFG][#b]?)([1-9]?)"
+
+A4_FREQ = 440.0  # Reference frequency for all tuning.
+
+SEMITONAL_OFFSET_MAP = {
+    "C": -9,
+    "C#": -8,
+    "Db": -8,
+    "D": -7,
+    "D#": -6,
+    "Eb": -6,
+    "E": -5,
+    "F": -4,
+    "F#": -3,
+    "Gb": -3,
+    "G": -2,
+    "G#": -1,
+    "Ab": -1,
+    "A": 0,
+    "A#": 1,
+    "Bb": 1,
+    "B": 2,
+}
+
+###############################################################################
+## Utility functions
+##
+
+
+def note_to_freq(note_name):
+  """
+    Function to convert the name of a note to its frequency.
+    Acceptable inputs:
+      A5
+      A#5: A Sharp 5
+      Ab5: A Flat 5
+      A: A4 (Default octave is 4)
+    TODO(antb): Add error checking for bad note names.
+    """
+
+  match = re.match(NOTE_REGEX, note_name)
+
+  if match.group(2):
+    octave = int(match.group(2))
+  else:
+    octave = 4
+
+  return A4_FREQ * math.pow(
+      2, SEMITONAL_OFFSET_MAP[match.group(1)] / 12.0) * math.pow(2, octave - 4)
+
+
 ###############################################################################
 ## Basic generators
 ##
@@ -249,16 +300,8 @@ def pipe_to_wave(generator, out_filename):
 ##
 
 if __name__ == "__main__":
-    frequencies = [
-        261.63,
-        293.66,
-        329.63,
-        349.23,
-        392.00,
-        440.00,
-        493.88,
-        523.25
-    ]
+    frequencies = list(
+      map(note_to_freq, ["C", "D", "E", "F", "G", "A", "B", "C5"]))
     octave = [
         concatenate(
             time_limiter(
